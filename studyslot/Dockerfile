@@ -9,6 +9,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # .dockerignore keeps caches, logs and local data out of the image.
 COPY . .
 
-EXPOSE 8000
+# 8000 = HTTP API and /metrics, 50051 = gRPC (A3: both in one process,
+# started by main.py when STUDYSLOT_GRPC_PORT is set).
+EXPOSE 8000 50051
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+# On "docker stop", give in-flight requests up to 5 s to finish.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--timeout-graceful-shutdown", "5"]

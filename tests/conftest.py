@@ -12,12 +12,15 @@ from pathlib import Path
 # Must happen BEFORE the app is imported: point it at a temporary database.
 os.environ["STUDYSLOT_DB_PATH"] = str(Path(tempfile.mkdtemp()) / "test.db")
 
+# A3: outside Docker the replica cannot look up its container name, so name it here.
+os.environ["REPLICA_ID"] = "T"
+
 # Let "import main" find the files in studyslot/.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "studyslot"))
 
 import pytest                                  # noqa: E402
 from fastapi.testclient import TestClient      # noqa: E402
-
+import chaos                                   # noqa: E402
 import db                                      # noqa: E402
 import main                                    # noqa: E402
 
@@ -29,8 +32,7 @@ def client():
         conn.execute("DELETE FROM bookings")
         conn.execute("DELETE FROM idempotency_keys")
     main.availability_limiter.reset()
-    main.INJECTED_DELAY = 0.0
-    main.FAIL_NEXT_BOOKINGS = 0
+    chaos.reset()
     return TestClient(main.app)
 
 

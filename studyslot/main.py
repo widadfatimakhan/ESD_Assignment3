@@ -3,11 +3,22 @@
 This file only deals with HTTP: routes, status codes, the error format,
 metrics and chaos switches. The booking rules live in booking_core.py and the
 data in db.py, so the gRPC service (Part B) reuses exactly the same rules and data.
+
+Assignment 3 changes (one process = one replica, both interfaces):
+  - when STUDYSLOT_GRPC_PORT is set, this process also starts the gRPC server
+    (grpc_server.start_in_background), so each replica serves HTTP and gRPC;
+  - every response carries X-Replica (A, B or C, see replica.py);
+  - request metrics skip /metrics, /health and /chaos*, as in the Week 1 lab,
+    so Envoy's health checks and our chaos calls are not counted as traffic;
+  - the chaos delay (chaos.py) slows every API call on this replica;
+  - behind Envoy, the rate limiter identifies the caller from X-Forwarded-For.
 """
+import asyncio
+import os
 import re
-import threading
 import time
 import uuid
+from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Annotated
 
@@ -24,19 +35,38 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.routing import Match
 
 import booking_core
+import chaos
 import db
+import grpc_server
 from logging_setup import log_event, request_id_var, trace_context_var
+from replica import REPLICA
 from tracing import child_span
 from metrics import BOOKINGS_TOTAL, IDEMPOTENT_REPLAYS, LATENCY_BUCKETS
 from rate_limit import RateLimitExceeded, SlidingWindowRateLimiter
 
 db.init_db()   # create the database file and table on startup if needed
 
+# A3: the gRPC server runs in this same process when this is set (docker-compose
+# sets it to 50051). The tests leave it unset and start their own gRPC server.
+GRPC_PORT = os.getenv("STUDYSLOT_GRPC_PORT")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start the gRPC server with the HTTP app, and stop it when Uvicorn shuts down."""
+    server = grpc_server.start_in_background(int(GRPC_PORT)) if GRPC_PORT else None
+    log_event("replica started", level="INFO", grpc_port=GRPC_PORT)
+    yield
+    if server is not None:
+        grpc_server.stop(server)
+
+
 app = FastAPI(
     title="StudySlot",
-    version="2.0.0",
+    version="3.0.0",
+    lifespan=lifespan,
     description=(
-        "Campus study-room booking service (ESD Assignment 2).\n\n"
+        "Campus study-room booking service (ESD Assignments 2 and 3).\n\n"
         "- Every response carries an `X-Request-ID` header. Send your own to correlate calls; "
         "otherwise one is generated. The same ID appears in the logs and in error bodies.\n"
         "- W3C Trace Context: send a `traceparent` header to join an existing trace. The response "
@@ -45,7 +75,8 @@ app = FastAPI(
         "- Every error uses the `ErrorResponse` shape: `{\"error\": {\"code\", \"message\", "
         "\"request_id\", \"details\"}}`.\n"
         "- `POST /bookings` accepts an `Idempotency-Key` header so retries are safe.\n"
-        "- `GET /availability` is rate limited to 5 calls per 10 seconds per client IP."
+        "- `GET /availability` is rate limited to 5 calls per 10 seconds per client IP.\n"
+        "- Every response carries an `X-Replica` header naming the replica (A, B or C) that handled it."
     ),
     redoc_url=None,   # replaced by the /redoc route below (FastAPI's default ReDoc link is broken)
 )
@@ -64,27 +95,12 @@ ROOMS_OCCUPIED = Gauge(
 )
 ROOMS_OCCUPIED.set_function(db.count_bookings)
 
-# Chaos: artificial delay (seconds) injected into the availability check. 0 = off.
-INJECTED_DELAY = 0.0
-
-# Chaos: the next N POST /bookings requests fail with 503, as if the service
-# were briefly down. Used to demonstrate the caller's retries and circuit breaker.
-FAIL_NEXT_BOOKINGS = 0
-_chaos_lock = threading.Lock()
+# Chaos switches (delay, injected failures) now live in chaos.py, shared with
+# the gRPC server in this process. Each replica has its own copy.
 
 
 class InjectedFailure(Exception):
     """Simulated outage: main.py turns this into 503 Service Unavailable."""
-
-
-def consume_injected_failure() -> bool:
-    """True if this request should fail (and counts it down)."""
-    global FAIL_NEXT_BOOKINGS
-    with _chaos_lock:
-        if FAIL_NEXT_BOOKINGS > 0:
-            FAIL_NEXT_BOOKINGS -= 1
-            return True
-    return False
 
 AVAILABILITY_CHECK_SECONDS = Histogram(
     "studyslot_availability_check_seconds",
@@ -112,7 +128,66 @@ HTTP_IN_FLIGHT = Gauge(
 
 
 # ---------------------------------------------------------------------------
-# Request IDs and tracing.
+# Request metrics (Part C). Labels use the route TEMPLATE, e.g.
+# "/bookings/{booking_id}", never the real path with an ID in it, so the
+# number of time series stays small and fixed.
+# ---------------------------------------------------------------------------
+_KNOWN_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
+
+# A3: not API traffic, so not measured (the Week 1 lab's rule). /health is
+# called by Envoy's health checks every few seconds; /chaos is our own
+# control panel; /metrics is Prometheus.
+_NOT_MEASURED = ("/metrics", "/health", "/chaos")
+
+
+def route_label(request: Request) -> str:
+    """The route template this request matches, or "unmatched" for unknown paths."""
+    partial = None
+    for route in app.router.routes:
+        match, _ = route.matches(request.scope)
+        if match == Match.FULL:
+            return route.path
+        if match == Match.PARTIAL and partial is None:   # right path, wrong method (405)
+            partial = route.path
+    return partial or "unmatched"
+
+
+@app.middleware("http")
+async def measure_http_requests(request: Request, call_next):
+    route = route_label(request)
+    if route.startswith(_NOT_MEASURED):     # scrapes, health checks, chaos calls
+        return await call_next(request)
+    method = request.method if request.method in _KNOWN_METHODS else "other"
+
+    in_flight = HTTP_IN_FLIGHT.labels(method=method, route=route)
+    in_flight.inc()
+    start = time.perf_counter()
+    status = 500                            # if the app crashes, count it as a 500
+    try:
+        # A3 chaos: a slow replica. asyncio.sleep, not time.sleep, so the
+        # event loop keeps serving other requests while this one waits.
+        delay = chaos.delay_seconds()
+        if delay:
+            await asyncio.sleep(delay)
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        elapsed = time.perf_counter() - start
+        HTTP_DURATION.labels(method=method, route=route).observe(elapsed)
+        HTTP_REQUESTS.labels(method=method, route=route, status=str(status)).inc()
+        in_flight.dec()
+        # A3: one log line per API request, so every request Envoy logs has a
+        # matching line from the replica that served it (same trace.id). The
+        # IDs go in the log, never in the metric labels above.
+        log_event("request handled", level="INFO", method=method, route=route,
+                  path=request.url.path, status=status, duration_ms=round(elapsed * 1000, 2))
+
+
+# ---------------------------------------------------------------------------
+# Request IDs and tracing. (A3: defined AFTER the metrics middleware, which
+# makes it the OUTER one, so the request ID and trace are already set while
+# the metrics middleware runs and its "request handled" log line carries them.)
 # - X-Request-ID: one ID per request, sent back in the response header,
 #   included in every log line and in every error body.
 # - traceparent (W3C Trace Context, as in the course lab): the trace-id is
@@ -138,48 +213,8 @@ async def assign_request_id(request: Request, call_next):
         trace_context_var.reset(trace_token)
     response.headers["X-Request-ID"] = request_id
     response.headers["traceparent"] = span["traceparent"]
+    response.headers["X-Replica"] = REPLICA          # A3: which replica answered
     return response
-
-
-# ---------------------------------------------------------------------------
-# Request metrics (Part C). Labels use the route TEMPLATE, e.g.
-# "/bookings/{booking_id}", never the real path with an ID in it, so the
-# number of time series stays small and fixed.
-# ---------------------------------------------------------------------------
-_KNOWN_METHODS = {"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"}
-
-
-def route_label(request: Request) -> str:
-    """The route template this request matches, or "unmatched" for unknown paths."""
-    partial = None
-    for route in app.router.routes:
-        match, _ = route.matches(request.scope)
-        if match == Match.FULL:
-            return route.path
-        if match == Match.PARTIAL and partial is None:   # right path, wrong method (405)
-            partial = route.path
-    return partial or "unmatched"
-
-
-@app.middleware("http")
-async def measure_http_requests(request: Request, call_next):
-    route = route_label(request)
-    if route == "/metrics":                 # don't measure Prometheus scraping us
-        return await call_next(request)
-    method = request.method if request.method in _KNOWN_METHODS else "other"
-
-    in_flight = HTTP_IN_FLIGHT.labels(method=method, route=route)
-    in_flight.inc()
-    start = time.perf_counter()
-    status = 500                            # if the app crashes, count it as a 500
-    try:
-        response = await call_next(request)
-        status = response.status_code
-        return response
-    finally:
-        HTTP_DURATION.labels(method=method, route=route).observe(time.perf_counter() - start)
-        HTTP_REQUESTS.labels(method=method, route=route, status=str(status)).inc()
-        in_flight.dec()
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +389,7 @@ class Availability(BaseModel):
 
 
 class DelaySetting(BaseModel):
-    seconds: float = Field(ge=0, le=10, description="Delay added to each booking's availability check; 0 turns it off")
+    seconds: float = Field(ge=0, le=10, description="Delay added to every API call on this replica (HTTP and gRPC); 0 turns it off")
 
 
 class FailureSetting(BaseModel):
@@ -396,9 +431,30 @@ AVAILABILITY_WINDOW_SECONDS = 10
 availability_limiter = SlidingWindowRateLimiter(AVAILABILITY_LIMIT, AVAILABILITY_WINDOW_SECONDS)
 
 
+# A3: behind Envoy, request.client.host is always ENVOY's address, so every
+# user would share one budget. Envoy appends the address it received the
+# request from to X-Forwarded-For (use_remote_address in envoy.yaml). Only the
+# LAST entry is trustworthy: anything before it was written by the caller and
+# could be faked. Trusting the header is only safe because the replicas are not
+# published to the host; the only way in is through Envoy.
+TRUST_X_FORWARDED_FOR = os.getenv("TRUST_X_FORWARDED_FOR", "false").lower() == "true"
+
+
+def client_address(request: Request) -> str:
+    if TRUST_X_FORWARDED_FOR:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded.strip():
+            return forwarded.split(",")[-1].strip()
+    return request.client.host if request.client else "unknown"
+
+
 def limit_availability_calls(request: Request, response: Response) -> None:
-    """Dependency: runs before /availability. Raises RateLimitExceeded when over the limit."""
-    client = request.client.host if request.client else "unknown"
+    """Dependency: runs before /availability. Raises RateLimitExceeded when over the limit.
+
+    The counts live in THIS replica's memory (rate_limit.py), so with three
+    replicas each one keeps its own count. See the A3 report, Part A.
+    """
+    client = client_address(request)
     remaining = availability_limiter.check(client)
     response.headers["X-RateLimit-Limit"] = str(AVAILABILITY_LIMIT)
     response.headers["X-RateLimit-Remaining"] = str(remaining)
@@ -445,12 +501,13 @@ def create_booking(
     A replayed request (same Idempotency-Key, same body) returns the original 201
     response with the header `Idempotent-Replayed: true`.
     """
-    if consume_injected_failure():     # chaos: simulated outage
+    if chaos.consume_injected_failure():   # chaos: simulated outage
         log_event("booking failed", level="ERROR", status=503, reason="injected_failure")
         raise InjectedFailure()
 
-    start = time.perf_counter()        # stopwatch for the availability check
-    time.sleep(INJECTED_DELAY)         # chaos: 0 normally; >0 when delay is injected
+    # A1 timer. Since A3 the chaos delay is added in the request middleware
+    # (for every route and for gRPC), so it no longer shows up in this histogram.
+    start = time.perf_counter()
     try:
         booking, replayed = booking_core.create_booking(
             req.room, req.slot, req.student_ids, idempotency_key=idempotency_key
@@ -517,31 +574,27 @@ def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-# --- Chaos switches (from A1) ---
-def chaos_state() -> dict:
-    return {"delay_seconds": INJECTED_DELAY, "fail_next_bookings": FAIL_NEXT_BOOKINGS}
-
-
+# --- Chaos switches (from A1; per replica since A3, see chaos.py) ---
+# Through Envoy these calls land on whichever replica Envoy picks. To change
+# ONE replica, use scripts/replica_chaos.py, which calls it from inside that
+# replica's container.
 @app.get("/chaos", response_model=ChaosState, tags=["chaos"])
 def get_chaos():
-    """Current chaos settings."""
-    return chaos_state()
+    """Current chaos settings of the replica that answers (see X-Replica)."""
+    return chaos.state()
 
 
 @app.put("/chaos/delay", response_model=ChaosState, responses=errors(422), tags=["chaos"])
 def set_delay(setting: DelaySetting):
-    """Set the artificial availability-check delay. 0 turns it off."""
-    global INJECTED_DELAY
-    INJECTED_DELAY = setting.seconds
+    """Add a fixed delay to every API call (HTTP and gRPC) on this replica. 0 turns it off."""
+    chaos.set_delay(setting.seconds)
     log_event("chaos delay set", level="WARNING", injected_delay_seconds=setting.seconds)
-    return chaos_state()
+    return chaos.state()
 
 
 @app.put("/chaos/failures", response_model=ChaosState, responses=errors(422), tags=["chaos"])
 def set_failures(setting: FailureSetting):
     """Make the next N POST /bookings requests fail with 503 (simulated outage). 0 turns it off."""
-    global FAIL_NEXT_BOOKINGS
-    with _chaos_lock:
-        FAIL_NEXT_BOOKINGS = setting.count
+    chaos.set_fail_next_bookings(setting.count)
     log_event("chaos failures set", level="WARNING", fail_next_bookings=setting.count)
-    return chaos_state()
+    return chaos.state()

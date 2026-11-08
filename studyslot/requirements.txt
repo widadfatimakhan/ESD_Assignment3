@@ -3,3 +3,6 @@ uvicorn[standard]==0.27.0
 prometheus-client==0.19.0
 grpcio==1.84.0
 protobuf==7.36.2
+
+grpcio-health-checking==1.84.0   # A3: standard gRPC health service, called by Envoy
+dnspython==2.7.0   # A3: reverse DNS lookup of the container name (replica.py)

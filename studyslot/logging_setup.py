@@ -11,6 +11,9 @@ import sys
 from contextvars import ContextVar
 from datetime import datetime, timezone
 
+
+from replica import REPLICA
+
 SERVICE_NAME = os.getenv("SERVICE_NAME", "studyslot")
 
 # The ID of the request currently being handled. The HTTP middleware in main.py
@@ -43,6 +46,7 @@ def log_event(message: str, *, level: str = "INFO", **fields) -> None:
     record = {
         "@timestamp": datetime.now(timezone.utc).isoformat(),
         "service": {"name": SERVICE_NAME},
+        "replica": REPLICA,
         "log": {"level": level.lower()},
         "message": message,
     }

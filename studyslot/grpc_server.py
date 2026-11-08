@@ -1,7 +1,17 @@
-"""StudySlot gRPC server (Assignment 2, Part B).
+"""StudySlot gRPC server (Assignment 2, Part B; changed in Assignment 3).
 
-Runs in its own container (studyslot-grpc) on port 50051. It serves ONE
-operation, CreateBooking, defined in protos/booking.proto.
+Serves ONE operation, CreateBooking, defined in protos/booking.proto, on port
+50051. In Assignment 2 it ran in its own container (studyslot-grpc). In
+Assignment 3 every replica must expose BOTH interfaces, so main.py starts this
+server inside the HTTP app's process (start_in_background below). Running
+`python grpc_server.py` on its own still works, as in Assignment 2.
+
+Assignment 3 additions:
+  - the standard gRPC health service (grpc.health.v1.Health), which Envoy's
+    active health checks call;
+  - an `x-replica` entry in the response metadata, so callers and Envoy's
+    access log can see which replica answered;
+  - the chaos delay (chaos.py) applied to every CreateBooking call.
 
 The handler calls booking_core.create_booking(), exactly like POST /bookings
 in main.py, and that writes to the same SQLite file through the shared Docker
@@ -21,18 +31,25 @@ import uuid
 from concurrent import futures
 
 import grpc
+from grpc_health.v1 import health, health_pb2, health_pb2_grpc
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 import booking_core
 import booking_pb2
 import booking_pb2_grpc
+import chaos
 import db
 from logging_setup import log_event, request_id_var, trace_context_var
 from metrics import BOOKINGS_TOTAL, IDEMPOTENT_REPLAYS, LATENCY_BUCKETS
+from replica import REPLICA
 from tracing import child_span
 
 GRPC_PORT = int(os.getenv("GRPC_PORT", "50051"))
-METRICS_PORT = int(os.getenv("METRICS_PORT", "9101"))   # Prometheus scrapes http://studyslot-grpc:9101/metrics
+METRICS_PORT = int(os.getenv("METRICS_PORT", "9101"))   # only used when run on its own (serve())
+
+# The health service is infrastructure, like GET /health: it is not measured,
+# traced or delayed (same rule as the course's Week 1 lab middleware).
+HEALTH_SERVICE = "grpc.health.v1.Health"
 
 # ---------------------------------------------------------------------------
 # Metrics (Part C), recorded for every RPC by MetricsInterceptor below.
@@ -139,6 +156,8 @@ class TracingInterceptor(grpc.ServerInterceptor):
         handler = continuation(handler_call_details)
         if handler is None or handler.unary_unary is None:
             return handler
+        if handler_call_details.method.startswith(f"/{HEALTH_SERVICE}/"):
+            return handler
 
         metadata = dict(handler_call_details.invocation_metadata or ())
         incoming_request_id = metadata.get("x-request-id", "")
@@ -152,6 +171,7 @@ class TracingInterceptor(grpc.ServerInterceptor):
             context.send_initial_metadata((
                 ("x-request-id", request_id),
                 ("traceparent", span["traceparent"]),
+                ("x-replica", REPLICA),          # A3: which replica answered
             ))
             request_token = request_id_var.set(request_id)
             trace_token = trace_context_var.set(span)
@@ -178,6 +198,8 @@ class MetricsInterceptor(grpc.ServerInterceptor):
 
         # "/studyslot.v1.BookingService/CreateBooking" -> service, method
         service, method = handler_call_details.method.lstrip("/").split("/", 1)
+        if service == HEALTH_SERVICE:
+            return handler      # Envoy's health checks are not API traffic
         original = handler.unary_unary
 
         def measured(request, context):
@@ -186,6 +208,11 @@ class MetricsInterceptor(grpc.ServerInterceptor):
             start = time.perf_counter()
             code = grpc.StatusCode.UNKNOWN
             try:
+                # A3 chaos: a slow replica. Inside the timing and the in-flight
+                # gauge, so this replica's p95 and in-flight count show it.
+                delay = chaos.delay_seconds()
+                if delay:
+                    time.sleep(delay)
                 response = original(request, context)
                 code = context.code() or grpc.StatusCode.OK
                 return response
@@ -218,8 +245,37 @@ def create_server(address: str = f"[::]:{GRPC_PORT}") -> tuple[grpc.Server, int]
         interceptors=[MetricsInterceptor(), TracingInterceptor()],
     )
     booking_pb2_grpc.add_BookingServiceServicer_to_server(BookingService(), server)
+
+    # A3: the standard health service (grpc.health.v1). Envoy calls Check()
+    # on it; SERVING means "send me traffic". "" is the whole server.
+    health_servicer = health.HealthServicer()
+    for name in ("", "studyslot.v1.BookingService"):
+        health_servicer.set(name, health_pb2.HealthCheckResponse.SERVING)
+    health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
+    server.health_servicer = health_servicer   # kept so shutdown can report NOT_SERVING
+
     port = server.add_insecure_port(address)
     return server, port
+
+
+def start_in_background(port: int = GRPC_PORT) -> grpc.Server:
+    """A3: start the gRPC server inside another process (main.py's HTTP app).
+
+    grpc.server() runs on its own worker threads, so it serves calls while
+    Uvicorn serves HTTP in the same process. The Prometheus metrics share the
+    process's default registry, so the HTTP app's /metrics page shows both.
+    """
+    server, bound = create_server(f"[::]:{port}")
+    server.start()
+    log_event("grpc server started", level="INFO", port=bound)
+    return server
+
+
+def stop(server: grpc.Server, grace: float = 2.0) -> None:
+    """Stop accepting calls, tell health checkers we are going, finish in-flight calls."""
+    server.health_servicer.enter_graceful_shutdown()   # every service -> NOT_SERVING
+    server.stop(grace=grace).wait()
+    log_event("grpc server stopped", level="INFO")
 
 
 def serve() -> None:

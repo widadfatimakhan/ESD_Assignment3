@@ -6,3 +6,5 @@
 pytest==8.3.3
 grpcio-tools==1.84.0   # turns booking.proto into Python code (the generation command)
 httpx==0.27.2   # used by FastAPI's TestClient; 0.28+ is not compatible with this FastAPI version
+
+PyYAML==6.0.3   # A3: scripts/envoy_config.py writes the Envoy configs
