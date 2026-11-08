@@ -5,7 +5,7 @@ Enterprise Software Development, Fall 2026 · Widad Fatima Khan
 StudySlot is the campus study-room booking service from Assignment 1. This
 assignment extends it: Part A improves the HTTP API, Part B adds a gRPC version
 of one operation, and Part C extends the metrics. Run and test commands are in
-the [README](README.md). The Assignment 1 report is in [docs/a1/REPORT.md](docs/a1/REPORT.md).
+the [README](../../README.md). The Assignment 1 report is in [docs/a1/REPORT.md](../a1/REPORT.md).
 A video walkthrough is on YouTube: https://youtu.be/liDCf23rnmo
 
 ---
@@ -72,17 +72,17 @@ historical record.
 
 | Case | Result | Evidence |
 |---|---|---|
-| Valid booking | `201`, `Location` header, booking with `id` | ![](docs/a2/images/partA-01-create-201.png) |
-| Repeated booking (no key) | `409 double_booked`, nothing duplicated | ![](docs/a2/images/partA-02-repeat-409.png) |
-| Duplicate student IDs | `422 invalid_student_ids` | ![](docs/a2/images/partA-03-invalid-duplicate-ids-422.png) |
-| Unknown slot | `422 unknown_slot` | ![](docs/a2/images/partA-04-invalid-slot-422.png) |
-| Malformed JSON | `400 malformed_json` | ![](docs/a2/images/partA-05-malformed-json-400.png) |
-| Get / cancel / cancel again | `200`, `204`, `404 not_found` | ![](docs/a2/images/partA-06-get-booking-200.png) ![](docs/a2/images/partA-07-delete-204.png) ![](docs/a2/images/partA-08-delete-again-404.png) |
+| Valid booking | `201`, `Location` header, booking with `id` | ![](images/partA-01-create-201.png) |
+| Repeated booking (no key) | `409 double_booked`, nothing duplicated | ![](images/partA-02-repeat-409.png) |
+| Duplicate student IDs | `422 invalid_student_ids` | ![](images/partA-03-invalid-duplicate-ids-422.png) |
+| Unknown slot | `422 unknown_slot` | ![](images/partA-04-invalid-slot-422.png) |
+| Malformed JSON | `400 malformed_json` | ![](images/partA-05-malformed-json-400.png) |
+| Get / cancel / cancel again | `200`, `204`, `404 not_found` | ![](images/partA-06-get-booking-200.png) ![](images/partA-07-delete-204.png) ![](images/partA-08-delete-again-404.png) |
 
 The same cases, plus idempotency, rate limiting and the error format, are
 automated in `tests/test_api.py` (`.venv\Scripts\python -m pytest -v`):
 
-![](docs/a2/images/partA-15-pytest.png)
+![](images/partA-15-pytest.png)
 
 ### A.3 OpenAPI Specification
 
@@ -94,7 +94,7 @@ interactive docs, client code and test requests, or to check that real traffic
 matches the contract.
 
 FastAPI generates the spec from the code, so it cannot drift from the routes.
-It is exported to [`openapi.json`](openapi.json) (`python scripts/export_openapi.py`),
+It is exported to [`openapi.json`](../../openapi.json) (`python scripts/export_openapi.py`),
 and a test fails if the committed file stops matching the code. The spec
 documents every route, its inputs (body schema with constraints, query and path
 parameters, the `Idempotency-Key` header) and every success and error response,
@@ -107,8 +107,8 @@ from the spec, to test the endpoints. All of A.2's screenshots were made
 through it, and Swagger refused to send a non-UUID booking ID because the spec
 declares `format: uuid`.
 
-![](docs/a2/images/partA-13-openapi-redoc-bookings.png)
-![](docs/a2/images/partA-14-openapi-client-validation.png)
+![](images/partA-13-openapi-redoc-bookings.png)
+![](images/partA-14-openapi-client-validation.png)
 
 ### A.4 Idempotency (safe repeats)
 
@@ -132,9 +132,9 @@ The other operations are safe to repeat without a key: `GET` only reads; `PUT`
 sets a value, and setting it twice leaves the same state; a repeated `DELETE`
 returns `404` but changes nothing further.
 
-![](docs/a2/images/partA-09-idempotency-first-201.png)
-![](docs/a2/images/partA-10-idempotency-replay-201.png)
-![](docs/a2/images/partA-11-idempotency-key-reused-422.png)
+![](images/partA-09-idempotency-first-201.png)
+![](images/partA-10-idempotency-replay-201.png)
+![](images/partA-11-idempotency-key-reused-422.png)
 
 ### A.5 Rate limiting
 
@@ -151,7 +151,7 @@ with `Retry-After`, then acceptance again after waiting. The last call shows
 `Remaining=2` because the window slides: calls 2–5 expire one by one, 10 s after
 each was made.
 
-![](docs/a2/images/partA-12-rate-limit-429.png)
+![](images/partA-12-rate-limit-429.png)
 
 ### A.6 Python caller
 
@@ -178,8 +178,8 @@ What the output shows:
 
 Rate limiting is demonstrated separately (A.5); the caller never calls the rate-limited endpoint.
 
-![](docs/a2/images/partA-16-caller-demo-1.png)
-![](docs/a2/images/partA-16-caller-demo-2.png)
+![](images/partA-16-caller-demo-1.png)
+![](images/partA-16-caller-demo-2.png)
 
 ---
 
@@ -202,7 +202,7 @@ request model (student-ID format, idempotency-key format) were moved into
 
 ### B.2 Contract and generated code
 
-[`studyslot/protos/booking.proto`](studyslot/protos/booking.proto) defines one
+[`studyslot/protos/booking.proto`](../../studyslot/protos/booking.proto) defines one
 unary RPC (streaming does not suit a single booking):
 
 ```proto
@@ -228,7 +228,7 @@ server base class `BookingServiceServicer`). The handler `BookingService` in
 
 ### B.3 Python client
 
-[`scripts/grpc_client.py`](scripts/grpc_client.py) calls the service directly
+[`scripts/grpc_client.py`](../../scripts/grpc_client.py) calls the service directly
 through the generated stub. It takes input from the command line (`--room`,
 `--slot`, `--students`, optional `--key`), sets a deadline (`--deadline`,
 default 2 s), sends a W3C `traceparent` in the call metadata, and prints either
@@ -241,16 +241,16 @@ the booking or the gRPC status, the `error-code` and the `trace.id`.
 | Invalid input | `--room R9 ...` | `INVALID_ARGUMENT`, `error-code: unknown_room` |
 | Deadline too short | `--deadline 0.0001` | `DEADLINE_EXCEEDED` |
 
-![](docs/a2/images/partB-01-grpc-success.png)
-![](docs/a2/images/partB-02-grpc-already-exists.png)
-![](docs/a2/images/partB-03-grpc-invalid-argument.png)
-![](docs/a2/images/partB-04-grpc-deadline.png)
+![](images/partB-01-grpc-success.png)
+![](images/partB-02-grpc-already-exists.png)
+![](images/partB-03-grpc-invalid-argument.png)
+![](images/partB-04-grpc-deadline.png)
 
 ### B.4 Success and failure through both versions
 
 `scripts/compare_http_grpc.py` makes the same calls through both APIs:
 
-![](docs/a2/images/partB-05-compare-http-grpc.png)
+![](images/partB-05-compare-http-grpc.png)
 
 A slot booked over HTTP is refused over gRPC, and a slot booked over gRPC is
 refused over HTTP. This shows the shared source of truth. The same bad input is
@@ -273,7 +273,7 @@ the `error-code` trailing metadata and the message as the status details.
 ### B.5 Call paths
 
 Both paths end in the same function and the same database file. A table version
-is in [docs/a2/call-paths.md](docs/a2/call-paths.md).
+is in [docs/a2/call-paths.md](call-paths.md).
 
 ```mermaid
 flowchart TB
@@ -323,7 +323,7 @@ lecture (§9):
 `compare_http_grpc.py` puts all of its calls in one trace, so a single Kibana
 search for that `trace.id` returns log lines from both services:
 
-![](docs/a2/images/partB-06-kibana-trace.png)
+![](images/partB-06-kibana-trace.png)
 
 ### B.7 Tests
 
@@ -333,7 +333,7 @@ the caller's trace-id), and shared state with the HTTP API: a gRPC booking is
 visible over HTTP, an HTTP booking blocks gRPC, and an HTTP idempotency key
 replays over gRPC.
 
-![](docs/a2/images/partB-07-pytest.png)
+![](images/partB-07-pytest.png)
 
 ---
 
@@ -397,15 +397,15 @@ does.
 ### C.3 Prometheus scrapes the gRPC service
 
 The gRPC process serves `/metrics` on its own HTTP port (9101), and
-[`monitoring/prometheus/prometheus.yml`](monitoring/prometheus/prometheus.yml)
+[`monitoring/prometheus/prometheus.yml`](../../monitoring/prometheus/prometheus.yml)
 adds the job `studyslot-grpc` → `studyslot-grpc:9101`.
 
-![](docs/a2/images/partC-01-prometheus-targets.png)
+![](images/partC-01-prometheus-targets.png)
 
 ### C.4 Dashboard evidence
 
 The provisioned dashboard **StudySlot A2: HTTP vs gRPC (create booking)**
-([JSON](monitoring/grafana/provisioning/dashboards/studyslot-a2-http-vs-grpc.json))
+([JSON](../../monitoring/grafana/provisioning/dashboards/studyslot-a2-http-vs-grpc.json))
 puts HTTP `POST /bookings` on the left and gRPC `CreateBooking` on the right.
 It was populated with `scripts/generate_traffic.py`, which runs two phases:
 
@@ -418,7 +418,7 @@ It was populated with `scripts/generate_traffic.py`, which runs two phases:
 Values below are read from the screenshots. All latencies are server side over
 a 1-minute window.
 
-![](docs/a2/images/partC-02-traffic-output.png)
+![](images/partC-02-traffic-output.png)
 
 **Calls and error ratio by status.** Both APIs show every expected status:
 201 / 409 / 422 over HTTP and OK / ALREADY_EXISTS / INVALID_ARGUMENT over gRPC.
@@ -429,7 +429,7 @@ The by-status panels show that every extra error was `409` / `ALREADY_EXISTS`,
 while `422` / `INVALID_ARGUMENT` stayed at exactly the designed 9.9 %. The cause
 is explained in C.5.
 
-![](docs/a2/images/partC-03-calls-and-errors.png)
+![](images/partC-03-calls-and-errors.png)
 
 **Latency and duration histograms.**
 
@@ -449,7 +449,7 @@ JSON parsing and validation plus two Starlette middlewares, against decoding one
 small protobuf message. Once traffic stopped, p95 shows `NaN` because no calls
 were left in the 1-minute window, so no quantile can be computed.
 
-![](docs/a2/images/partC-04-latency.png)
+![](images/partC-04-latency.png)
 
 **In-flight, bookings and replays.** In-flight stayed at 0–3 under steady load
 and peaked at **8 (HTTP)** and **9 (gRPC)** during the burst, at the same moment
@@ -460,7 +460,7 @@ before the handler starts. Bookings peaked at 15.2/s (HTTP) and 13.6/s (gRPC),
 and the replays panel shows identical numbers. That is expected, since every
 successful booking was replayed exactly once.
 
-![](docs/a2/images/partC-05-inflight-and-business.png)
+![](images/partC-05-inflight-and-business.png)
 
 ### C.5 What load testing found
 
