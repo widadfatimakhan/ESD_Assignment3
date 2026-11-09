@@ -1,4 +1,57 @@
+# StudySlot - Assignment 3: load balancing with Envoy.
+#
+# Compared with Assignment 2:
+#   - "app" replaces studyslot-app + studyslot-grpc: ONE image, ONE process per
+#     replica, serving HTTP (8000) and gRPC (50051). Compose runs 3 replicas.
+#   - the replicas publish no ports; clients reach them only through Envoy,
+#     which takes over A2's ports 8000 (HTTP) and 50051 (gRPC), so every A2
+#     caller works unchanged.
+#   - Prometheus scrapes each replica and Envoy directly (monitoring/prometheus).
+#
+# The project name fixes the replicas' container names:
+#   studyslot-app-1 = A, studyslot-app-2 = B, studyslot-app-3 = C.
+name: studyslot
+
 services:
+  envoy:
+    image: envoyproxy/envoy:v1.40.1
+    container_name: studyslot-envoy
+    # The whole envoy/ folder is mounted (not just the file), so switching
+    # configs with scripts/envoy_config.py and restarting is always picked up.
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--log-level", "warn"]
+    volumes:
+      - ./envoy:/etc/envoy:ro
+    ports:
+      - "8000:8000"     # HTTP listener
+      - "50051:50051"   # gRPC listener (HTTP/2)
+      - "9901:9901"     # admin: /clusters, /stats/prometheus, /config_dump
+    depends_on:
+      app:
+        condition: service_healthy
+
+  app:
+    build: ./studyslot
+    deploy:
+      replicas: 3       # Docker Compose scaling: A, B, C
+    environment:
+      - STUDYSLOT_DB_PATH=/data/studyslot.db
+      - STUDYSLOT_GRPC_PORT=50051       # start the gRPC server in the same process
+      - TRUST_X_FORWARDED_FOR=true      # only Envoy can reach the replicas
+    volumes:
+      - studyslot-data:/data            # ONE database file shared by all replicas
+    labels:
+      - "co.elastic.logs/json.keys_under_root=true"
+      - "co.elastic.logs/json.overwrite_keys=true"
+      - "co.elastic.logs/json.add_error_key=true"
+    # Docker's own check (as in the Week 1 lab): Envoy waits for it at start-up.
+    # Envoy's active health checks (Part D) are separate and configured in Envoy.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
   prometheus:
     image: prom/prometheus:v2.54.1
     container_name: studyslot-prometheus
@@ -6,8 +59,6 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
 
   grafana:
     image: grafana/grafana:10.2.0
@@ -60,41 +111,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       - elasticsearch
-      - studyslot-app
-
-  studyslot-app:
-    build: ./studyslot
-    container_name: studyslot-app
-    ports:
-      - "8000:8000"
-    environment:
-      - STUDYSLOT_DB_PATH=/data/studyslot.db
-    volumes:
-      - studyslot-data:/data
-    labels:
-      - "co.elastic.logs/json.keys_under_root=true"
-      - "co.elastic.logs/json.overwrite_keys=true"
-      - "co.elastic.logs/json.add_error_key=true"
-
-  # Part B: the gRPC version of CreateBooking. Same code and image as
-  # studyslot-app, but it runs grpc_server.py instead of the HTTP API, and it
-  # mounts the SAME volume, so both read and write the same database file.
-  studyslot-grpc:
-    build: ./studyslot
-    container_name: studyslot-grpc
-    command: ["python", "-u", "grpc_server.py"]
-    ports:
-      - "50051:50051"   # gRPC
-      - "9101:9101"     # Prometheus metrics (Part C)
-    environment:
-      - STUDYSLOT_DB_PATH=/data/studyslot.db
-      - SERVICE_NAME=studyslot-grpc
-    volumes:
-      - studyslot-data:/data
-    labels:
-      - "co.elastic.logs/json.keys_under_root=true"
-      - "co.elastic.logs/json.overwrite_keys=true"
-      - "co.elastic.logs/json.add_error_key=true"
 
 volumes:
   studyslot-data:
