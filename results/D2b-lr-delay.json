@@ -1,0 +1,69 @@
+{
+  "label": "D2b-lr-delay",
+  "policy": "least request",
+  "fault": "B +200 ms",
+  "start_utc": "2026-11-09T15:53:17.166Z",
+  "end_utc": "2026-11-09T15:54:47.799Z",
+  "timeout_s": 2.0,
+  "events": [],
+  "interfaces": [
+    {
+      "interface": "http",
+      "operation": "GET /bookings/{id}",
+      "target_rps": 40,
+      "duration_s": 90,
+      "sent": 3600,
+      "actual_send_rps": 40.0,
+      "max_send_lag_ms": 22.0,
+      "successes": 3600,
+      "failures": 0,
+      "error_rate_pct": 0.0,
+      "failures_by_outcome": {},
+      "client_latency_ms": {
+        "p50": 10.51,
+        "p95": 219.24,
+        "p99": 223.4,
+        "max": 235.74
+      },
+      "successes_by_replica": {
+        "A": 1555,
+        "B": 543,
+        "C": 1502
+      },
+      "share_pct": {
+        "A": 43.2,
+        "B": 15.1,
+        "C": 41.7
+      }
+    },
+    {
+      "interface": "grpc",
+      "operation": "CreateBooking (replay)",
+      "target_rps": 40,
+      "duration_s": 90,
+      "sent": 3600,
+      "actual_send_rps": 40.0,
+      "max_send_lag_ms": 23.2,
+      "successes": 3600,
+      "failures": 0,
+      "error_rate_pct": 0.0,
+      "failures_by_outcome": {},
+      "client_latency_ms": {
+        "p50": 10.69,
+        "p95": 217.73,
+        "p99": 228.18,
+        "max": 250.06
+      },
+      "successes_by_replica": {
+        "A": 1486,
+        "B": 554,
+        "C": 1560
+      },
+      "share_pct": {
+        "A": 41.3,
+        "B": 15.4,
+        "C": 43.3
+      }
+    }
+  ]
+}
