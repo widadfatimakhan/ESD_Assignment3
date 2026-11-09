@@ -3,16 +3,27 @@ global:
   evaluation_interval: 5s
 
 scrape_configs:
-    # HTTP API (FastAPI) - metrics on the same port as the API
-    - job_name: 'studyslot'
-      static_configs:
-        - targets: ['studyslot-app:8000']
+  # Assignment 3: each replica is scraped DIRECTLY by its container name, never
+  # through Envoy. Through Envoy, each scrape would land on whichever replica
+  # Envoy picked, and the three replicas' numbers would be mixed together.
+  # One process per replica serves HTTP and gRPC, so one target covers both.
+  # The `replica` label is added here and ends up on every metric from that target.
+  - job_name: 'studyslot'
+    static_configs:
+      - targets: ['studyslot-app-1:8000']
+        labels: {replica: 'A'}
+      - targets: ['studyslot-app-2:8000']
+        labels: {replica: 'B'}
+      - targets: ['studyslot-app-3:8000']
+        labels: {replica: 'C'}
 
-    # gRPC service (Part B/C) - gRPC on 50051, metrics on a separate HTTP port 9101
-    - job_name: 'studyslot-grpc'
-      static_configs:
-        - targets: ['studyslot-grpc:9101']
+  # Envoy's own view: healthy hosts per cluster, health-check results,
+  # active and failed upstream requests.
+  - job_name: 'envoy'
+    metrics_path: /stats/prometheus
+    static_configs:
+      - targets: ['envoy:9901']
 
-    - job_name: 'node-exporter'
-      static_configs:
-        - targets: ['node-exporter:9100']
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']

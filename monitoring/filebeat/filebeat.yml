@@ -2,6 +2,7 @@ filebeat.autodiscover:
   providers:
     - type: docker
       templates:
+        # The StudySlot replicas (image studyslot-app): one JSON object per line.
         - condition:
             contains:
               docker.container.image: studyslot
@@ -12,6 +13,30 @@ filebeat.autodiscover:
               json.keys_under_root: true
               json.overwrite_keys: true
               json.add_error_key: true
+
+        # Assignment 3: Envoy. Its access log and health-check events are JSON
+        # on stdout; its own start-up messages go to stderr and are skipped.
+        - condition:
+            contains:
+              docker.container.image: envoyproxy/envoy
+          config:
+            - type: container
+              stream: stdout
+              paths:
+                - '/var/lib/docker/containers/${data.docker.container.id}/*.log'
+              json.keys_under_root: true
+              json.overwrite_keys: true
+              json.add_error_key: true
+              processors:
+                # Envoy logs the whole W3C traceparent header. Split it so its
+                # trace-id lands in trace.id, the same field the replicas log:
+                #   00-<trace.id>-<trace.parent_id>-<trace.flags>
+                # Then  trace.id : "<id>"  finds Envoy's line AND the replica's line.
+                - dissect:
+                    tokenizer: "00-%{id}-%{parent_id}-%{flags}"
+                    field: "traceparent"
+                    target_prefix: "trace"
+                    ignore_failure: true
 
 processors:
   - add_docker_metadata: ~
