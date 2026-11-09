@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "StudySlot",
-    "description": "Campus study-room booking service (ESD Assignment 2).\n\n- Every response carries an `X-Request-ID` header. Send your own to correlate calls; otherwise one is generated. The same ID appears in the logs and in error bodies.\n- W3C Trace Context: send a `traceparent` header to join an existing trace. The response `traceparent` carries the same trace-id with this service's span-id, and every log line includes `trace.id` (shared with the gRPC service for the same trace).\n- Every error uses the `ErrorResponse` shape: `{\"error\": {\"code\", \"message\", \"request_id\", \"details\"}}`.\n- `POST /bookings` accepts an `Idempotency-Key` header so retries are safe.\n- `GET /availability` is rate limited to 5 calls per 10 seconds per client IP.",
-    "version": "2.0.0"
+    "description": "Campus study-room booking service (ESD Assignments 2 and 3).\n\n- Every response carries an `X-Request-ID` header. Send your own to correlate calls; otherwise one is generated. The same ID appears in the logs and in error bodies.\n- W3C Trace Context: send a `traceparent` header to join an existing trace. The response `traceparent` carries the same trace-id with this service's span-id, and every log line includes `trace.id` (shared with the gRPC service for the same trace).\n- Every error uses the `ErrorResponse` shape: `{\"error\": {\"code\", \"message\", \"request_id\", \"details\"}}`.\n- `POST /bookings` accepts an `Idempotency-Key` header so retries are safe.\n- `GET /availability` is rate limited to 5 calls per 10 seconds per client IP.\n- Every response carries an `X-Replica` header naming the replica (A, B or C) that handled it.",
+    "version": "3.0.0"
   },
   "paths": {
     "/": {
@@ -449,7 +449,7 @@
           "chaos"
         ],
         "summary": "Get Chaos",
-        "description": "Current chaos settings.",
+        "description": "Current chaos settings of the replica that answers (see X-Replica).",
         "operationId": "get_chaos_chaos_get",
         "responses": {
           "200": {
@@ -471,7 +471,7 @@
           "chaos"
         ],
         "summary": "Set Delay",
-        "description": "Set the artificial availability-check delay. 0 turns it off.",
+        "description": "Add a fixed delay to every API call (HTTP and gRPC) on this replica. 0 turns it off.",
         "operationId": "set_delay_chaos_delay_put",
         "requestBody": {
           "content": {
@@ -699,7 +699,7 @@
             "maximum": 10.0,
             "minimum": 0.0,
             "title": "Seconds",
-            "description": "Delay added to each booking's availability check; 0 turns it off"
+            "description": "Delay added to every API call on this replica (HTTP and gRPC); 0 turns it off"
           }
         },
         "type": "object",
