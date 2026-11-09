@@ -41,7 +41,7 @@ def envoy_counts(interface: str, start: str, end: str) -> tuple[int, dict, dict]
         "track_total_hits": True,
         "query": {"bool": {"filter": [
             {"term": {"service.name": "envoy"}},
-            {"term": {"interface": interface}},
+            {"term": {"network.protocol": interface}},
             {"exists": {"field": "traceparent"}},       # only the load test's calls carry one
             {"range": {"@timestamp": {"gte": start, "lte": end}}},
         ]}},
@@ -60,7 +60,6 @@ def envoy_counts(interface: str, start: str, end: str) -> tuple[int, dict, dict]
         body["aggs"]["by_replica"]["terms"]["field"] = "replica.keyword"
         if interface == "grpc":
             body["aggs"]["by_outcome"]["terms"]["field"] = "grpc_status.keyword"
-        body["query"]["bool"]["filter"][1] = {"term": {"interface.keyword": interface}}
         result = search(body)
     total = result["hits"]["total"]["value"]
     by_replica = {b["key"]: b["doc_count"] for b in result["aggregations"]["by_replica"]["buckets"]}

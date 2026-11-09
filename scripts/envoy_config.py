@@ -82,7 +82,7 @@ def http_access_log(interface: str) -> list:
                 "service": {"name": "envoy"},
                 "log": {"level": "info"},
                 "message": "access",
-                "interface": interface,                      # http or grpc
+                "network": {"protocol": interface},
                 "http": {
                     "request": {"method": "%REQ(:METHOD)%"},
                     "response": {"status_code": "%RESPONSE_CODE%"},
@@ -114,7 +114,7 @@ def tcp_access_log() -> list:
                 "service": {"name": "envoy"},
                 "log": {"level": "info"},
                 "message": "tcp connection",
-                "interface": "grpc-tcp",
+                "network": {"protocol": "grpc-tcp"},
                 "duration_ms": "%DURATION%",
                 "upstream": {"cluster": "%UPSTREAM_CLUSTER%", "host": "%UPSTREAM_HOST%",
                              "name": "%UPSTREAM_HOST_NAME%"},
