@@ -33,7 +33,7 @@ each request or call to a replica, so every A2 caller works unchanged.
 
 ## Requirements
 - Docker Desktop with Docker Compose v2 (`docker compose version`)
-- About 6 GB free RAM (Elasticsearch is the heavy component)
+- About 6 GB free RAM 
 - Python 3.13, for the tests and the client scripts
 
 ## Setup
@@ -43,8 +43,7 @@ docker compose up -d --build
 docker compose ps
 ```
 All services should be up and the three `studyslot-app-N` replicas `(healthy)`.
-Envoy waits for them before starting. If Grafana exited on first start (a
-known Grafana 10.2 start-up race), run `docker compose start grafana`.
+Envoy waits for them before starting. 
 
 `deploy.replicas: 3` in `docker-compose.yml` is what starts three replicas.
 The same thing on the command line: `docker compose up -d --scale app=3`.
@@ -66,8 +65,6 @@ Check that everything is wired up:
 | http://localhost:9090/targets | `studyslot` A, B, C, `envoy` and `node-exporter` all UP |
 | http://localhost:3000 | Dashboard **StudySlot A3: load balancing (HTTP and gRPC per replica)** (the A1 and A2 dashboards are still there) |
 | http://localhost:5601/app/discover | Data view `studyslot-logs-*`, timestamp `@timestamp` |
-
-(In PowerShell, `curl` is an alias for `Invoke-WebRequest`; use `curl.exe`.)
 
 The A1 and A2 dashboards still load, with two side effects of the replicas:
 their "by API" panels show one line (HTTP and gRPC now share a process and a
