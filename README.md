@@ -400,3 +400,4 @@ step is a Docker restart policy on Envoy.
 - Course Week 1 lab (Midnight Launch): logging, tracing and metric conventions.
 - Envoy documentation: load-balancing policies, health checking, access-log format.
 - Assignments 1 and 2 (StudySlot) code, extended here.
+- AI assistance: Some part of the code was written with the help of Claude.
