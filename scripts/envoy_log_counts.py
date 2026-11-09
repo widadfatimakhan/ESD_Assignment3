@@ -42,8 +42,8 @@ def envoy_counts(interface: str, start: str, end: str) -> tuple[int, dict, dict]
         "query": {"bool": {"filter": [
             {"term": {"service.name": "envoy"}},
             {"term": {"network.protocol": interface}},
-            {"exists": {"field": "traceparent"}},       # only the load test's calls carry one
-            {"range": {"@timestamp": {"gte": start, "lte": end}}},
+            {"exists": {"field": "traceparent"}},       
+            {"range": {"@timestamp": {"gte": f"{start}||-2s", "lte": f"{end}||+2s"}}},
         ]}},
         "aggs": {
             "by_replica": {"terms": {"field": "replica", "missing": "(none)", "size": 10}},
