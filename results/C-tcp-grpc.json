@@ -1,0 +1,36 @@
+{
+  "label": "C-tcp-grpc",
+  "policy": "round robin, gRPC as TCP proxy",
+  "fault": "none",
+  "start_utc": "2026-11-09T15:35:26.796Z",
+  "end_utc": "2026-11-09T15:35:57.294Z",
+  "timeout_s": 2.0,
+  "events": [],
+  "interfaces": [
+    {
+      "interface": "grpc",
+      "operation": "CreateBooking (replay)",
+      "target_rps": 40,
+      "duration_s": 30.0,
+      "sent": 1200,
+      "actual_send_rps": 40.0,
+      "max_send_lag_ms": 16.6,
+      "successes": 1200,
+      "failures": 0,
+      "error_rate_pct": 0.0,
+      "failures_by_outcome": {},
+      "client_latency_ms": {
+        "p50": 6.08,
+        "p95": 11.47,
+        "p99": 44.53,
+        "max": 70.79
+      },
+      "successes_by_replica": {
+        "A": 1200
+      },
+      "share_pct": {
+        "A": 100.0
+      }
+    }
+  ]
+}
