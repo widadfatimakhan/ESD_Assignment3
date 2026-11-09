@@ -1,0 +1,110 @@
+{
+  "label": "D3-failure",
+  "policy": "round robin + health checks",
+  "fault": "B stopped at 30 s, started at 60 s",
+  "start_utc": "2026-11-09T16:33:43.751Z",
+  "end_utc": "2026-11-09T16:35:14.279Z",
+  "timeout_s": 2.0,
+  "events": [
+    {
+      "action": "stop",
+      "container": "studyslot-app-2",
+      "issued_s": 30.001,
+      "returned_s": 31.876,
+      "issued_utc": "2026-11-09T16:34:14.252Z",
+      "returned_utc": "2026-11-09T16:34:16.127Z",
+      "ok": true,
+      "error": ""
+    },
+    {
+      "action": "start",
+      "container": "studyslot-app-2",
+      "issued_s": 60.001,
+      "returned_s": 60.6,
+      "issued_utc": "2026-11-09T16:34:44.252Z",
+      "returned_utc": "2026-11-09T16:34:44.851Z",
+      "ok": true,
+      "error": ""
+    }
+  ],
+  "interfaces": [
+    {
+      "interface": "http",
+      "operation": "GET /bookings/{id}",
+      "target_rps": 40,
+      "duration_s": 90,
+      "sent": 3600,
+      "actual_send_rps": 39.99,
+      "max_send_lag_ms": 35.2,
+      "successes": 3545,
+      "failures": 55,
+      "error_rate_pct": 1.53,
+      "failures_by_outcome": {
+        "503": 55
+      },
+      "client_latency_ms": {
+        "p50": 11.03,
+        "p95": 20.05,
+        "p99": 134.9,
+        "max": 1065.64
+      },
+      "successes_by_replica": {
+        "A": 1409,
+        "B": 729,
+        "C": 1407
+      },
+      "share_pct": {
+        "A": 39.7,
+        "B": 20.6,
+        "C": 39.7
+      },
+      "failure_timing": {
+        "first_error_sent_s": 30.2414,
+        "last_error_sent_s": 34.1392,
+        "last_success_from_replica_before_stop_s": 29.9379,
+        "errors_end_after_stop_issued_s": 4.14,
+        "first_success_from_replica_after_start_s": 65.5561,
+        "back_in_rotation_after_start_issued_s": 5.56
+      }
+    },
+    {
+      "interface": "grpc",
+      "operation": "CreateBooking (replay)",
+      "target_rps": 40,
+      "duration_s": 90,
+      "sent": 3600,
+      "actual_send_rps": 39.99,
+      "max_send_lag_ms": 33.3,
+      "successes": 3552,
+      "failures": 48,
+      "error_rate_pct": 1.33,
+      "failures_by_outcome": {
+        "UNAVAILABLE": 48
+      },
+      "client_latency_ms": {
+        "p50": 9.45,
+        "p95": 20.59,
+        "p99": 80.73,
+        "max": 1065.19
+      },
+      "successes_by_replica": {
+        "A": 1457,
+        "B": 638,
+        "C": 1457
+      },
+      "share_pct": {
+        "A": 41.0,
+        "B": 18.0,
+        "C": 41.0
+      },
+      "failure_timing": {
+        "first_error_sent_s": 30.416,
+        "last_error_sent_s": 33.9252,
+        "last_success_from_replica_before_stop_s": 29.9541,
+        "errors_end_after_stop_issued_s": 3.92,
+        "first_success_from_replica_after_start_s": 72.5594,
+        "back_in_rotation_after_start_issued_s": 12.56
+      }
+    }
+  ]
+}
